@@ -53,7 +53,7 @@ writeMediaWiki opts document =
 -- | Return MediaWiki representation of document.
 pandocToMediaWiki :: WriterOptions -> Pandoc -> State WriterState String
 pandocToMediaWiki opts (Pandoc _ blocks) = do
-  body <- blockListToMediaWiki opts True blocks
+  body <- blockListToMediaWiki opts blocks
   notesExist <- get >>= return . stNotes
   let notes = if notesExist
                  then "\n<references />"
@@ -72,16 +72,15 @@ escapeString =  escapeStringForXML
 
 -- | Convert Pandoc block element to MediaWiki. 
 blockToMediaWiki :: WriterOptions -- ^ Options
-                -> Bool          -- ^ Top Level
                 -> Block         -- ^ Block element
                 -> State WriterState String 
 
-blockToMediaWiki _ _ Null = return ""
+blockToMediaWiki _ Null = return ""
 
-blockToMediaWiki opts _ (Plain inlines) =
+blockToMediaWiki opts (Plain inlines) = 
   inlineListToMediaWiki opts inlines
 
-blockToMediaWiki opts _ (Para [Image txt (src,tit)]) = do
+blockToMediaWiki opts (Para [Image txt (src,tit)]) = do
   capt <- inlineListToMediaWiki opts txt 
   let opt = if null txt
                then ""
@@ -89,7 +88,7 @@ blockToMediaWiki opts _ (Para [Image txt (src,tit)]) = do
                     "|caption " ++ capt
   return $ "[[Image:" ++ src ++ "|frame|none" ++ opt ++ "]]\n"
 
-blockToMediaWiki opts _ (Para inlines) = do
+blockToMediaWiki opts (Para inlines) = do
   useTags <- get >>= return . stUseTags
   listLevel <- get >>= return . stListLevel
   contents <- inlineListToMediaWiki opts inlines
@@ -97,18 +96,18 @@ blockToMediaWiki opts _ (Para inlines) = do
               then  "<p>" ++ contents ++ "</p>"
               else contents ++ if null listLevel then "\n" else ""
 
-blockToMediaWiki _ _ (RawBlock "mediawiki" str) = return str
-blockToMediaWiki _ _ (RawBlock "html" str) = return str
-blockToMediaWiki _ _ (RawBlock _ _) = return ""
+blockToMediaWiki _ (RawBlock "mediawiki" str) = return str
+blockToMediaWiki _ (RawBlock "html" str) = return str
+blockToMediaWiki _ (RawBlock _ _) = return ""
 
-blockToMediaWiki _ _ HorizontalRule = return "\n-----\n"
+blockToMediaWiki _ HorizontalRule = return "\n-----\n"
 
-blockToMediaWiki opts _ (Header level inlines) = do
+blockToMediaWiki opts (Header level inlines) = do
   contents <- inlineListToMediaWiki opts inlines
   let eqs = replicate level '='
   return $ eqs ++ " " ++ contents ++ " " ++ eqs ++ "\n"
 
-blockToMediaWiki _ _ (CodeBlock (_,classes,_) str) = do
+blockToMediaWiki _ (CodeBlock (_,classes,_) str) = do
   let at  = classes `intersect` ["actionscript", "ada", "apache", "applescript", "asm", "asp",
                        "autoit", "bash", "blitzbasic", "bnf", "c", "c_mac", "caddcl", "cadlisp", "cfdg", "cfm",
                        "cpp", "cpp-qt", "csharp", "css", "d", "delphi", "diff", "div", "dos", "eiffel", "fortran",
@@ -123,11 +122,11 @@ blockToMediaWiki _ _ (CodeBlock (_,classes,_) str) = do
                       else ("<source lang=\"" ++ head at ++ "\">", "</source>")
   return $ beg ++ escapeString str ++ end
 
-blockToMediaWiki opts _ (BlockQuote blocks) = do
-  contents <- blockListToMediaWiki opts False blocks
+blockToMediaWiki opts (BlockQuote blocks) = do
+  contents <- blockListToMediaWiki opts blocks
   return $ "<blockquote>" ++ contents ++ "</blockquote>" 
 
-blockToMediaWiki opts _ (Table capt aligns widths headers rows') = do
+blockToMediaWiki opts (Table capt aligns widths headers rows') = do
   let alignStrings = map alignmentToString aligns
   captionDoc <- if null capt
                    then return ""
@@ -148,8 +147,9 @@ blockToMediaWiki opts _ (Table capt aligns widths headers rows') = do
   return $ "<table>\n" ++ captionDoc ++ coltags ++ head' ++
             "<tbody>\n" ++ unlines body' ++ "</tbody>\n</table>\n"
 
-blockToMediaWiki opts toplvl x@(BulletList items) = do
+blockToMediaWiki opts x@(BulletList items) = do
   oldUseTags <- get >>= return . stUseTags
+  listLevel <- get >>= return . stListLevel
   let useTags = oldUseTags || not (isSimpleList x)
   if useTags
      then do
@@ -161,10 +161,11 @@ blockToMediaWiki opts toplvl x@(BulletList items) = do
         modify $ \s -> s { stListLevel = stListLevel s ++ "*" }
         contents <- mapM (listItemToMediaWiki opts) items
         modify $ \s -> s { stListLevel = init (stListLevel s) }
-        return $ vcat contents ++ (if toplvl then "\n" else "")
+        return $ vcat contents ++ if null listLevel then "\n" else ""
 
-blockToMediaWiki opts toplvl x@(OrderedList attribs items) = do
+blockToMediaWiki opts x@(OrderedList attribs items) = do
   oldUseTags <- get >>= return . stUseTags
+  listLevel <- get >>= return . stListLevel
   let useTags = oldUseTags || not (isSimpleList x)
   if useTags
      then do
@@ -176,10 +177,11 @@ blockToMediaWiki opts toplvl x@(OrderedList attribs items) = do
         modify $ \s -> s { stListLevel = stListLevel s ++ "#" }
         contents <- mapM (listItemToMediaWiki opts) items
         modify $ \s -> s { stListLevel = init (stListLevel s) }
-        return $ vcat contents ++ (if toplvl then "\n" else "")
+        return $ vcat contents ++ if null listLevel then "\n" else ""
 
-blockToMediaWiki opts toplvl x@(DefinitionList items) = do
+blockToMediaWiki opts x@(DefinitionList items) = do
   oldUseTags <- get >>= return . stUseTags
+  listLevel <- get >>= return . stListLevel
   let useTags = oldUseTags || not (isSimpleList x)
   if useTags
      then do
@@ -191,7 +193,7 @@ blockToMediaWiki opts toplvl x@(DefinitionList items) = do
         modify $ \s -> s { stListLevel = stListLevel s ++ ";" }
         contents <- mapM (definitionListItemToMediaWiki opts) items
         modify $ \s -> s { stListLevel = init (stListLevel s) }
-        return $ vcat contents ++ (if toplvl then "\n" else "")
+        return $ vcat contents ++ if null listLevel then "\n" else ""
 
 -- Auxiliary functions for lists:
 
@@ -209,7 +211,7 @@ listAttribsToString (startnum, numstyle, _) =
 -- | Convert bullet or ordered list item (list of blocks) to MediaWiki.
 listItemToMediaWiki :: WriterOptions -> [Block] -> State WriterState String
 listItemToMediaWiki opts items = do
-  contents <- blockListToMediaWiki opts False items
+  contents <- blockListToMediaWiki opts items
   useTags <- get >>= return . stUseTags
   if useTags
      then return $ "<li>" ++ contents ++ "</li>"
@@ -223,7 +225,7 @@ definitionListItemToMediaWiki :: WriterOptions
                              -> State WriterState String
 definitionListItemToMediaWiki opts (label, items) = do
   labelText <- inlineListToMediaWiki opts label
-  contents <- mapM (blockListToMediaWiki opts False) items
+  contents <- mapM (blockListToMediaWiki opts) items
   useTags <- get >>= return . stUseTags
   if useTags
      then return $ "<dt>" ++ labelText ++ "</dt>\n" ++
@@ -305,16 +307,15 @@ tableItemToMediaWiki :: WriterOptions
 tableItemToMediaWiki opts celltype align' item = do
   let mkcell x = "<" ++ celltype ++ " align=\"" ++ align' ++ "\">" ++
                     x ++ "</" ++ celltype ++ ">"
-  contents <- blockListToMediaWiki opts False item
+  contents <- blockListToMediaWiki opts item
   return $ mkcell contents
 
 -- | Convert list of Pandoc block elements to MediaWiki.
 blockListToMediaWiki :: WriterOptions -- ^ Options
-                    -> Bool          -- ^ Top level
                     -> [Block]       -- ^ List of block elements
                     -> State WriterState String 
-blockListToMediaWiki opts toplvl blocks =
-  mapM (blockToMediaWiki opts toplvl) blocks >>= return . vcat
+blockListToMediaWiki opts blocks =
+  mapM (blockToMediaWiki opts) blocks >>= return . vcat
 
 -- | Convert list of Pandoc inline elements to MediaWiki.
 inlineListToMediaWiki :: WriterOptions -> [Inline] -> State WriterState String
@@ -392,7 +393,7 @@ inlineToMediaWiki opts (Image alt (source, tit)) = do
   return $ "[[Image:" ++ source ++ txt ++ "]]"
 
 inlineToMediaWiki opts (Note contents) = do 
-  contents' <- blockListToMediaWiki opts False contents
+  contents' <- blockListToMediaWiki opts contents
   modify (\s -> s { stNotes = True })
   return $ "<ref>" ++ contents' ++ "</ref>"
   -- note - may not work for notes with multiple blocks
