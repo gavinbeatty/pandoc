@@ -18,9 +18,9 @@ Description:     Pandoc is a Haskell library for converting from one markup
                  this library. It can read markdown and (subsets of) HTML,
                  reStructuredText, LaTeX, DocBook, and Textile, and it can write
                  markdown, reStructuredText, HTML, LaTeX, ConTeXt, Docbook,
-                 OpenDocument, ODT, Word docx, RTF, MediaWiki, Textile,
-                 groff man pages, plain text, Emacs Org-Mode, AsciiDoc, EPUB,
-                 and S5, Slidy and Slideous HTML slide shows.
+                 OpenDocument, ODT, Word docx, RTF, MediaWiki, GoogleWiki,
+                 Textile, groff man pages, plain text, Emacs Org-Mode,
+                 AsciiDoc, EPUB, and S5, Slidy and Slideous HTML slide shows.
                  .
                  Pandoc extends standard markdown syntax with footnotes,
                  embedded LaTeX, definition lists, tables, and other
@@ -44,6 +44,7 @@ Data-Files:
                  templates/default.man, templates/default.markdown,
                  templates/default.rst, templates/default.plain,
                  templates/default.mediawiki, templates/default.rtf,
+                 templates/default.googlewiki,
                  templates/default.s5, templates/default.slidy,
                  templates/default.slideous,
                  templates/default.dzslides, templates/default.asciidoc,
@@ -137,6 +138,7 @@ Extra-Source-Files:
                  tests/tables.plain,
                  tests/tables.markdown,
                  tests/tables.mediawiki,
+                 -- XXX tests/tables.googlewiki,
                  tests/tables.textile,
                  tests/tables.native,
                  tests/tables.opendocument,
@@ -157,6 +159,7 @@ Extra-Source-Files:
                  tests/writer.markdown,
                  tests/writer.plain,
                  tests/writer.mediawiki,
+                 -- XXX tests/writer.googlewiki,
                  tests/writer.textile,
                  tests/writer.native,
                  tests/writer.opendocument,
@@ -279,6 +282,7 @@ Library
                    Text.Pandoc.Writers.AsciiDoc,
                    Text.Pandoc.Writers.Textile,
                    Text.Pandoc.Writers.MediaWiki,
+                   Text.Pandoc.Writers.GoogleWiki,
                    Text.Pandoc.Writers.RTF,
                    Text.Pandoc.Writers.ODT,
                    Text.Pandoc.Writers.Docx,
