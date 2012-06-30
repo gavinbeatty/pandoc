@@ -1,4 +1,5 @@
 {-
+Copyright (C) 2006-2010 John MacFarlane <jgm@berkeley.edu>
 Copyright (C) 2012 Gavin Beatty <gavinbeatty@gmail.com>
 
 This program is free software; you can redistribute it and/or modify
@@ -18,7 +19,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 {- |
    Module      : Text.Pandoc.Writers.GoogleWiki
-   Copyright   : Copyright (C) 2012 Gavin Beatty
+   Copyright   : Copyright (C) 2006-2010 John MacFarlane, Copyright (C) 2012 Gavin Beatty
    License     : GNU GPL, version 2 or above
 
    Maintainer  : Gavin Beatty <gavinbeatty@gmail.com>
@@ -34,39 +35,30 @@ import Text.Pandoc.Definition
 import Text.Pandoc.Shared
 import Text.Pandoc.Templates (renderTemplate)
 --import Text.Pandoc.XML ( escapeStringForXML )
---import Data.List ( intersect, intercalate, mapAccumL )
 import Data.List ( intersect, intercalate )
---import Data.Char ( isUpper, isLower, isDigit )
+import Data.Char ( isUpper, isLower, isDigit )
+import Network.URI ( escapeURIString, isUnescapedInURI )
 import Control.Monad.State
 
 data WriterState = WriterState {
-  stListLevel :: Int            -- How many nested levels. Top level => 0
-  , stUseTags :: Bool           -- True if we should use HTML tags because we're in a complex list
-  , stEndnotes    :: [String]       -- List of endnotes
+  stListLevel   :: Int            -- How many nested levels. Top level => 0
+  , stUseTags   :: Bool           -- True if we should use HTML tags because we're in a complex list
+  , stEndnotes  :: [String]       -- List of endnotes
+  , stNeedsBang :: Bool           -- Whether a ! is needed to protect WikiNames
   }
 
 -- | Convert Pandoc to GoogleWiki.
 writeGoogleWiki :: WriterOptions -> Pandoc -> String
 writeGoogleWiki opts document =
   evalState (pandocToGoogleWiki opts document)
-            (WriterState { stListLevel = 0, stUseTags = False, stEndnotes = [] })
-
--- | Somewhat hacky, but acceptable formatting for end notes.
-fmtEndNotes :: [String] -> [String]
-fmtEndNotes (x:xs) =
-  let acc = [("==== End notes ====\n^1^: " ++ x)]
-  in go (2 :: Int) acc xs
-  where go n acc (a:as) = go (n+1) acc' as
-            where acc' = acc ++ ['^':(show n) ++ "^ " ++ a]
-        go _ acc []     = acc
-fmtEndNotes [] = []
+            (WriterState { stListLevel = 0, stUseTags = False, stEndnotes = [], stNeedsBang = True })
 
 -- | Return GoogleWiki representation of document.
 pandocToGoogleWiki :: WriterOptions -> Pandoc -> State WriterState String
 pandocToGoogleWiki opts (Pandoc _ blocks) = do
   body <- blockListToGoogleWiki opts blocks
-  endNotes <- get >>= return . stEndnotes
-  let fullbody = intercalate "\n" (body : fmtEndNotes endNotes)
+  endNotes <- get >>= return . stEndnotes -- top level end notes
+  let fullbody = vcat (body : fmtEndNotes endNotes)
       context = writerVariables opts ++
                 [ ("body", fullbody) ] ++
                 [ ("toc", "yes") | writerTableOfContents opts ]
@@ -85,11 +77,31 @@ escapeString s =
                    else s
         else s
 
+-- | Escape a double quote string using &quot;
+dqAmpEscapeString :: String -> String
+dqAmpEscapeString = escapeStringUsing [('"', "&quot;")]
+-- | Escape a double quote string using %34
+dqURIEscapeString :: String -> String
+dqURIEscapeString = escapeStringUsing [('"', "%20")]
+
+-- | Somewhat hacky, but acceptable formatting for end notes.
+fmtEndNotes :: [String] -> [String]
+fmtEndNotes s@(_:_) =
+  go (1 :: Int) [] s
+  where go n acc (a:as) = go (n+1) acc' as
+            where acc' = acc ++ [(noteNumberFormat n) ++ " " ++ a]
+        go _ acc []     = acc
+fmtEndNotes [] = []
+
+endNotesToGoogleWiki :: WriterOptions -> State WriterState String
+endNotesToGoogleWiki _ = do
+  endNotes <- get >>= return . stEndnotes
+  return . vcat $ fmtEndNotes endNotes
+
 -- | Convert Pandoc block element to GoogleWiki.
 blockToGoogleWiki :: WriterOptions -- ^ Options
                 -> Block         -- ^ Block element
                 -> State WriterState String
-
 blockToGoogleWiki _ Null = return ""
 
 blockToGoogleWiki opts (Plain inlines) =
@@ -98,19 +110,19 @@ blockToGoogleWiki opts (Plain inlines) =
 blockToGoogleWiki opts (Para [Image txt (src,tit)]) = do
   capt <- inlineListToGoogleWiki opts txt
   let attrTitle = if not $ null tit
-                     then " title='" ++ tit ++ "'"
+                     then " title=\"" ++ dqAmpEscapeString tit ++ "\""
                      else if not $ null txt
-                             then " title='" ++ capt ++ "'"
+                             then " title=\"" ++ dqAmpEscapeString capt ++ "\""
                              else ""
       attrAlt = if not $ null txt
-                   then " alt='" ++ capt ++ "'"
+                   then " alt=\"" ++ dqAmpEscapeString capt ++ "\""
                    else if not $ null tit
-                           then " alt='" ++ tit ++ "'"
+                           then " alt=\"" ++ dqAmpEscapeString tit ++ "\""
                            else ""
       attrs = attrTitle ++ attrAlt
   return $ if null attrs
               then "\n" ++ src ++ "\n"
-              else "\n<img src='" ++ src ++ "'" ++ attrs ++ " />\n"
+              else "\n<img src=\"" ++ dqURIEscapeString src ++ "\"" ++ attrs ++ " />\n"
 
 blockToGoogleWiki opts (Para inlines) = do
   useTags <- get >>= return . stUseTags
@@ -120,16 +132,21 @@ blockToGoogleWiki opts (Para inlines) = do
               then  "<p>" ++ contents ++ "</p>"
               else contents ++ if 0 == listLevel then "\n" else ""
 
-blockToGoogleWiki _ (RawBlock "mediawiki" str) = return str
+blockToGoogleWiki _ (RawBlock "googlewiki" str) = return str
+-- Even though only a subset of HTML is supported, just let it through as-is.
 blockToGoogleWiki _ (RawBlock "html" str) = return str
 blockToGoogleWiki _ (RawBlock _ _) = return ""
 
 blockToGoogleWiki _ HorizontalRule = return "\n-----\n"
 
 blockToGoogleWiki opts (Header level inlines) = do
+  -- Before a new header, flush the end notes.
+  endNotes <- endNotesToGoogleWiki opts
+  let endNotes' = if null endNotes then "" else endNotes ++ "\n"
+  modify $ \s -> s { stEndnotes = [] }
   contents <- inlineListToGoogleWiki opts inlines
   let eqs = replicate (2 * level) '='
-  return $ eqs ++ " " ++ contents ++ " " ++ eqs ++ "\n"
+  return $ endNotes' ++ eqs ++ " " ++ contents ++ " " ++ eqs ++ "\n"
 
 blockToGoogleWiki _ (CodeBlock (_,classes,_) str) = do
   -- XXX what does google code support
@@ -151,7 +168,6 @@ blockToGoogleWiki opts (BlockQuote blocks) = do
   contents <- blockListToGoogleWiki opts blocks
   return $ "<blockquote>" ++ contents ++ "</blockquote>"
 
--- XXX todo tables
 blockToGoogleWiki opts (Table capt aligns widths headers rows') = do
   let alignStrings = map alignmentToString aligns
   captionDoc <- if null capt
@@ -244,7 +260,7 @@ definitionListItemToGoogleWiki opts (label, items) = do
   labelText <- inlineListToGoogleWiki opts label
   contents <- mapM (blockListToGoogleWiki opts) items
   return $ "<dt>" ++ labelText ++ "</dt>\n" ++
-      (intercalate "\n" $ map (\d -> "<dd>" ++ d ++ "</dd>") contents)
+      (vcat $ map (\d -> "<dd>" ++ d ++ "</dd>") contents)
 
 -- | True if the list can be handled by simple wiki markup, False if HTML tags will be needed.
 isSimpleList :: Block -> Bool
@@ -328,33 +344,14 @@ blockListToGoogleWiki :: WriterOptions -- ^ Options
 blockListToGoogleWiki opts blocks =
   mapM (blockToGoogleWiki opts) blocks >>= return . vcat
 
---linkEscapeString :: String -> String
-{-
-linkEscapeString = id
--}
-{-
-linkEscapeString = fst . mapAccumL f ""
-  where f acc x = if x == '[' || x == ']'
-                     then ((acc++) $ '\\' : [x], [])
-                     else (acc ++ [x], [])
--}
-{-
-linkEscapeString = fst . mapAccumL f ""
-  where f acc x = case x of
-                    '[' -> (acc ++ "&#91;", [])
-                    ']' -> (acc ++ "&#93;", [])
-                    _   -> (acc ++ [x], [])
--}
+isWikiName :: String -> Bool
+isWikiName (x:y:z:ts) =
+  isUpper x && isLowerDigit y && (or $ map isUpper (z:ts)) && (not $ isUpper $ last (z:ts))
+    where isLowerDigit c = isLower c || isDigit c
+isWikiName _ = False
 
 bangEscapeString :: String -> String
-bangEscapeString s = s
-{-
-bangEscapeString s@(x:y:z:ts) =
-  if isUpper x && (isLower y || isDigit y) && (or $ map isUpper (z:ts))
-     then '!' : s
-     else s
-bangEscapeString s = s
--}
+bangEscapeString s = if isWikiName s then '!':s else s
 
 -- | Convert list of Pandoc inline elements to GoogleWiki.
 inlineListToGoogleWiki :: WriterOptions -> [Inline] -> State WriterState String
@@ -399,14 +396,16 @@ inlineToGoogleWiki opts (Cite _  lst) = inlineListToGoogleWiki opts lst
 inlineToGoogleWiki _ (Code _ str) =
   return $ "`" ++ str ++ "`"
 
-inlineToGoogleWiki _ (Str str) =
-  -- XXX need to bangEscapeString only in pars, etc.
-  -- don't want to do it in links, etc.
-  return $ bangEscapeString $ escapeString str
+inlineToGoogleWiki _ (Str str) = do
+  needsBang <- get >>= return . stNeedsBang
+  let str' = escapeString str
+  return $ if needsBang then bangEscapeString str' else str'
 
--- XXX not supported
-inlineToGoogleWiki _ (Math _ str) = return $ "<math>" ++ str ++ "</math>"
-                                 -- note:  str should NOT be escaped
+-- | As a workaround for
+-- http://code.google.com/p/support/issues/detail?id=1431,
+-- http://latex.codecogs.com is used to create an image URL.
+inlineToGoogleWiki _ (Math _ str) =
+  return $ "http://latex.codecogs.com/gif.latex?" ++ (escapeURIString isUnescapedInURI $ str ++ "%.png")
 
 inlineToGoogleWiki _ (RawInline "googlewiki" str) = return str
 inlineToGoogleWiki _ (RawInline "html" str) = return str
@@ -417,26 +416,35 @@ inlineToGoogleWiki _ (LineBreak) = return "<br />\n"
 inlineToGoogleWiki _ Space = return " "
 
 inlineToGoogleWiki opts (Link txt (src, _)) = do
+  oldNeedsBang <- get >>= return . stNeedsBang
+  modify $ \s -> s { stNeedsBang = False }
   label <- inlineListToGoogleWiki opts txt
+  modify $ \s -> s { stNeedsBang = oldNeedsBang }
   case txt of
      [Code _ s] | s == src -> return src
      _  -> return $ "[" ++ src ++ " " ++ label ++ "]"
 
 inlineToGoogleWiki opts (Image alt (src, tit)) = do
+  oldNeedsBang <- get >>= return . stNeedsBang
+  modify $ \s -> s { stNeedsBang = False }
   alt' <- inlineListToGoogleWiki opts alt
+  modify $ \s -> s { stNeedsBang = oldNeedsBang }
   let attrTitle = if not $ null tit
-                     then " title='" ++ tit ++ "'"
+                     then " title=\"" ++ dqAmpEscapeString tit ++ "\""
                      else ""
       attrAlt = if not $ null alt
-                   then " alt='" ++ alt' ++ "'"
+                   then " alt=\"" ++ dqAmpEscapeString alt' ++ "\""
                    else ""
       attrs = attrTitle ++ attrAlt
   return $ if null attrs
               then src
-              else "<img src='" ++ src ++ "'" ++ attrs ++ " />"
+              else "<img src=\"" ++ dqURIEscapeString src ++ "\"" ++ attrs ++ " />"
 
 inlineToGoogleWiki opts (Note contents) = do
   contents' <- blockListToGoogleWiki opts contents
   modify $ \s -> s { stEndnotes = (stEndnotes s) ++ [contents'] }
-  return ""
-  -- note - may not work for notes with multiple blocks
+  endNotes <- get >>= return . stEndnotes
+  return . noteNumberFormat $ length endNotes
+
+noteNumberFormat :: Int -> String
+noteNumberFormat n = "`[" ++ (show n) ++ "]`"

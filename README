@@ -16,10 +16,11 @@ another, and a command-line tool that uses this library. It can read
 [LaTeX], and [DocBook XML]; and it can write plain text, [markdown],
 [reStructuredText], [XHTML], [HTML 5], [LaTeX] (including [beamer]
 slide shows), [ConTeXt], [RTF], [DocBook XML], [OpenDocument XML],
-[ODT], [Word docx], [GNU Texinfo], [MediaWiki markup], [EPUB],
-[Textile], [groff man] pages, [Emacs Org-Mode], [AsciiDoc], and [Slidy],
-[Slideous], [DZSlides], or [S5] HTML slide shows. It can also produce
-[PDF] output on systems where LaTeX is installed.
+[ODT], [Word docx], [GNU Texinfo], [MediaWiki markup], [Google code
+wiki markup], [EPUB], [Textile], [groff man] pages, [Emacs Org-Mode],
+[AsciiDoc], and [Slidy], [Slideous], [DZSlides], or [S5] HTML slide
+shows. It can also produce [PDF] output on systems where LaTeX is
+installed.
 
 Pandoc's enhanced version of markdown includes syntax for footnotes,
 tables, flexible ordered lists, definition lists, delimited code blocks,
@@ -2301,6 +2302,7 @@ Latter, Ralf Stephan, Eric Seidel, B. Scott Michel.
 [ODT]: http://en.wikipedia.org/wiki/OpenDocument
 [Textile]: http://redcloth.org/textile
 [MediaWiki markup]: http://www.mediawiki.org/wiki/Help:Formatting
+[Google code wiki markup]: http://code.google.com/p/support/wiki/WikiFAQ
 [groff man]: http://developer.apple.com/DOCUMENTATION/Darwin/Reference/ManPages/man7/groff_man.7.html
 [Haskell]:  http://www.haskell.org/
 [GNU Texinfo]: http://www.gnu.org/software/texinfo/
