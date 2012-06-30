@@ -13,6 +13,7 @@ import qualified Tests.Writers.LaTeX
 import qualified Tests.Writers.HTML
 import qualified Tests.Writers.Native
 import qualified Tests.Writers.Markdown
+--import qualified Tests.Writers.GoogleWiki
 import qualified Tests.Shared
 
 tests :: [Test]
@@ -24,6 +25,7 @@ tests = [ testGroup "Old" Tests.Old.tests
           , testGroup "LaTeX" Tests.Writers.LaTeX.tests
           , testGroup "HTML" Tests.Writers.HTML.tests
           , testGroup "Markdown" Tests.Writers.Markdown.tests
+          --, testGroup "GoogleWiki" Tests.Writers.GoogleWiki.tests
           ]
         , testGroup "Readers"
           [ testGroup "LaTeX" Tests.Readers.LaTeX.tests

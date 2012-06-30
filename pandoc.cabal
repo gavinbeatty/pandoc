@@ -159,7 +159,7 @@ Extra-Source-Files:
                  tests/writer.markdown,
                  tests/writer.plain,
                  tests/writer.mediawiki,
-                 -- XXX tests/writer.googlewiki,
+                 tests/writer.googlewiki,
                  tests/writer.textile,
                  tests/writer.native,
                  tests/writer.opendocument,
