@@ -30,19 +30,13 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Conversion of 'Pandoc' documents to Confluence markup.
 
 Confluence:  <https://confluence.atlassian.com/display/DOC/Confluence+Wiki+Markup>
-
-Problems with the Confluence markup format:
-1.  Nested macros are not supported:
-    * Macros are used for: blockquotes, code blocks, pre-formatted blocks,
-      footnotes, math.
-2.  Raw HTML is only supported with the HTML plugin+macro.
-3.  .
 -}
 module Text.Pandoc.Writers.Confluence ( writeConfluence ) where
 import Text.Pandoc.Definition
 import Text.Pandoc.Shared
 import Text.Pandoc.Templates (renderTemplate)
 import Data.List ( intersect, intercalate )
+import Data.List.Split ( splitOn )
 --import Network.URI ( escapeURIString, isUnescapedInURI )
 import Control.Monad.State
 
@@ -76,12 +70,43 @@ pandocToConfluence opts (Pandoc _ blocks) = do
      then return $ renderTemplate context $ writerTemplate opts
      else return fullbody
 
+-- Returns 'True' if 'xs' has >= 'n' elements.
+lengthGeq :: Int -> [a] -> Bool
+lengthGeq n []
+    | n <= 0 = True
+    | otherwise = False
+lengthGeq 0 (x:xs) = True
+lengthGeq n (x:xs) = lengthGeq (n-1) xs
+
+-- XXX hmm, use a regex here since i want something like:
+-- /c[^c]+c/ for most cases
+-- | Escape 'infx' if >= 'n' occurrences are found in 's' (escape using '\\').
+escapeN :: Int -> String -> String -> String
+escapeN 0 _ s = s
+escapeN n infx s
+    | lengthGeq n split = intercalate (map ('\\':) infx) split
+    | otherwise = s
+  where split = splitOn infx s
+
+-- | Repeated application of 'escapeN'.
+escapeNs :: [(Int,String)] -> String -> String
+escapeNs [] s = s
+escapeNs ((n,x):nxs) s = escapeNs nxs $ escapeN n x s
+
 -- | Escape special characters for Confluence.
 escapeString :: String -> String
-escapeString = escapeStringUsing [
-                   ('{', "\\{")
+escapeString = escapeNs $ map (2:) infxs $ escapeStringUsing [
+                     ('{', "\\{")
                    , ('}', "\\}")
                    ]
+                 where infxs = ["*","_","??","-","+","^","~","bq.","!""|",]
+
+-- | Escape only '<' and '>' to "&lt;" and "&gt;".
+escapeHtml :: String -> String
+escapeHtml = escapeStringUsing [
+                  ('<', "&lt;")
+                , ('>', "&gt;")
+                ]
 
 -- | Footnotes require the following free (after filling in survey...) plugin:
 -- http://www.adaptavist.com/display/Plugins/Footnotes
@@ -89,6 +114,8 @@ displayFootnotesToConfluence :: WriterOptions -> State WriterState String
 displayFootnotesToConfluence _ = do
   footnotes <- get >>= return . stHaveFootnotes
   return $ if footnotes then "{display-footnotes}" else ""
+
+addHtmlMacro :: WriterOptions -> State
 
 -- | Convert Pandoc block element to Confluence.
 blockToConfluence :: WriterOptions -- ^ Options
@@ -99,31 +126,14 @@ blockToConfluence _ Null = return ""
 blockToConfluence opts (Plain inlines) =
   inlineListToConfluence opts inlines
 
-blockToConfluence opts (Para [Image txt (src,tit)]) = do
-  capt <- inlineListToConfluence opts txt
-  let attrTitle = if not $ null tit
-                     then "title=\"" ++ dqAmpEscapeString tit ++ "\""
-                     else if not $ null txt
-                             then "title=\"" ++ dqAmpEscapeString capt ++ "\""
-                             else ""
-      attrAlt = if not $ null txt
-                   then "alt=\"" ++ dqAmpEscapeString capt ++ "\""
-                   else if not $ null tit
-                           then "alt=\"" ++ dqAmpEscapeString tit ++ "\""
-                           else ""
-      attrs = filter (not . null) [attrTitle, attrAlt]
-  return $ "\n!" ++ src ++ linkAttrJoin attrs ++ "!\n"
-
 blockToConfluence opts (Para inlines) = do
-  useTags <- get >>= return . stUseTags
   listLevel <- get >>= return . stListLevel
   contents <- inlineListToConfluence opts inlines
-  return $ if useTags
-              then  "<p>" ++ contents ++ "</p>"
-              else contents ++ if 0 == listLevel then "\n" else ""
+  return $ contents ++ if 0 == listLevel then "\n" else ""
 
 blockToConfluence _ (RawBlock "confluence" str) = return str
-blockToConfluence _ (RawBlock "html" str) = return str
+-- Try it using the `{html}` macro, even though it's non-standard.
+blockToConfluence _ (RawBlock "html" str) = return "{html}" ++ str ++ "{html}"
 blockToConfluence _ (RawBlock _ _) = return ""
 
 blockToConfluence _ HorizontalRule = return "----\n"
@@ -153,20 +163,28 @@ blockToConfluence _ (CodeBlock (_,classes,_) str) = do
   return $ "{code" ++ fmt ++ "}\n" ++ str ++ "\n{code}\n"
 
 blockToConfluence opts (BlockQuote blocks) = do
-  inQuote <- get >>= return . stInQuote
-  modify $ \s -> s { stInQuote = True }
+  macros <- get >>= return . stMacros
+  modify $ \s -> s { stMacros = macros ++ ["quote"] }
   contents <- blockListToConfluence opts blocks
-  modify $ \s -> s { stInQuote = inQuote }
+  modify $ \s -> s { stInQuote = init $ stMacros s }
   return $ "{quote}\n" ++ init contents ++ "{quote}\n"
 
 blockToConfluence opts t@(Table _ _ _ _ _) = do
-  useTags <- get >>= return . stUseTags
+  macros <- get >>= return . stMacros
   if not $ isSimpleTable t then do
-      modify $ \s -> s { stUseTags = True }
-      table <- tableToConfluenceUsingTags opts t
-      modify $ \s -> s { stUseTags = useTags }
+      addHtmlMacro
+      if "html" `elem` macros
+         then do
+           table <- tableToConfluenceUsingTags opts t
+           return table
+         else do
+           modify $ \s -> s { stMacros = macros ++ ["html"] }
+           table <- tableToConfluenceUsingTags opts t
+           modify $ \s -> s { stUseTags = useTags }
+           return table
+      else 
       return table
-  else tableToConfluenceUsingBars opts $ mkSimpleTable t
+  else do return $ tableToConfluenceUsingBars opts $ mkSimpleTable t
 
 blockToConfluence opts x@(BulletList items) = do
   oldUseTags <- get >>= return . stUseTags
@@ -414,7 +432,10 @@ inlineToConfluence _ (Code _ str) =
   return $ "{code}" ++ str ++ "{code}"
 
 inlineToConfluence _ (Str str) = do
-  return $ escapeString str
+  macros <- get >>= return . stMacros
+  return $ if "html" `elem` macros
+              then escapeString str
+              else $ escapeHtml $ escapeString str
 
 -- | Requires the LaTeX plugin:
 -- https://studio.plugins.atlassian.com/wiki/display/CLATEX/LaTeX+Plugin
@@ -425,7 +446,8 @@ inlineToConfluence _ (RawInline "confluence" str) = return str
 inlineToConfluence _ (RawInline "html" str) = return str
 inlineToConfluence _ (RawInline _ _) = return ""
 
-inlineToConfluence _ (LineBreak) = return "\\\\"
+-- | Trailing space so consecutive line breaks can work.
+inlineToConfluence _ (LineBreak) = return "\\\\ "
 
 inlineToConfluence _ Space = return " "
 
