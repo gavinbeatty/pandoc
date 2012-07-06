@@ -1,0 +1,17 @@
+# confluence
+
+# generic
+
+* [wiki syntax](https://confluence.atlassian.com/display/DOC/Confluence+Wiki+Markup#ConfluenceWikiMarkup-Images)
+* [jira syntax](https://jira.atlassian.com/secure/WikiRendererHelpAction.jspa?section=all)
+* [html macros](https://studio.plugins.atlassian.com/wiki/display/HTMLMACROS/Confluence+HTML+Macros)
+
+# writer
+
+nothing special.
+
+# reader
+
+* [parsec](http://www.haskell.org/haskellwiki/Parsec)
+* [parsec real world](http://book.realworldhaskell.org/read/using-parsec.html)
+
